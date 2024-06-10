@@ -1,0 +1,229 @@
+---
+title: "airbnbEDA"
+output: html_document
+date: "2024-05-24"
+---
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+library(visdat)
+library(dplyr)
+library(corrplot)
+library(corrr)
+library(visdat)
+library(ranger)
+library(beepr)
+library(xgboost)
+library(forcats)
+tidymodels_prefer()
+```
+
+Read in data frame.
+Convert price 
+Since there are only 143 values > 1250, I will filter to where the price per night is less than 
+1250 to filter out outliers. This will help the data to be more manageable and less skewed left.
+(143 not a lot in the grand scheme of 19,000 points)
+```{r}
+airbnb <- read_csv('DATA/Airbnb Data/Cleaned_airbnb_barcelona.csv')
+airbnb_big <- read_csv('DATA/Airbnb Data/barcelona_listings.csv')
+airbnb$price <- as.numeric(gsub("[\\$,]", "", airbnb$price))
+
+#set airbnb_raw to the initial data set before I make any changes
+airbnb_raw <- airbnb
+
+airbnb <- airbnb %>% filter(price < 1250)
+#Get rid of amenities
+airbnb <- airbnb %>% select(-c(amenities))
+```
+
+```{r}
+summary(airbnb)
+```
+
+```{r}
+summary(airbnb$price)
+```
+
+
+```{r}
+# Add number_of_reviews to airbnb
+airbnb <- airbnb %>%
+  left_join(select(airbnb_big, id, number_of_reviews), by = "id")
+
+View(airbnb)
+```
+
+
+Visualise missing data in airbnb:
+- With 24% of data missing from reviews_scores_rating I will drop the variable because it is a large chunk missing.
+```{r}
+airbnb %>% select(review_scores_rating) %>% vis_miss()
+
+# Most of the data is present, the only variable with problems is reviews_scores_rating
+vis_miss(airbnb)
+
+airbnb_big %>% 
+  select(c(host_response_rate, host_response_rate, host_is_superhost, neighbourhood_group_cleansed,
+           property_type, room_type, accommodates, bedrooms, beds, bathrooms, price, number_of_reviews,
+           reviews_per_month, review_scores_rating)) %>% 
+  vis_miss()
+
+```
+Factor Categorical Variables
+```{r}
+airbnb$neighbourhood <- factor(airbnb$neighbourhood)
+airbnb$property_type <- factor(airbnb$property_type)
+airbnb$room_type <- factor(airbnb$room_type)
+
+
+View(airbnb)
+```
+
+Handle Missing
+```{r}
+# Remove review_scores_rating because too many missing
+airbnb <- airbnb %>% select(-review_scores_rating)
+
+# Remove the NA from entire data set (zipcode 3%, host_listings_count, host_is_superhost, bathrooms)
+# Percentage of data set was so small that removing NA was negligible 
+# Otherwise would have either imput averages or dropped the variable in terms of zipcode
+airbnb <- na.omit(airbnb)
+
+vis_miss(airbnb)
+```
+
+
+Histogram of response variable (price)
+```{r}
+#airbnb %>% filter(price>1250) %>% count()
+
+#airbnb  %>% ggplot( aes(x= log(price)))+geom_histogram()
+ggplot(airbnb, aes(x= price)) + geom_bar(fill= 'mediumorchid') +
+  theme_minimal()
+
+ggplot(airbnb, aes(x= price)) + geom_histogram(bins = 250,fill= 'mediumorchid') +
+  theme_minimal() + labs(title = 'Distribution of Nightly Price')
+```
+
+Correlation Plot
+```{r}
+#CORR plot of the variables I will use in the recipe
+airbnb %>% 
+  select(-c('...1', id, host_id, beds, number_of_reviews_ltm, has_availability)) %>% 
+  select_if((is.numeric)) %>% 
+    drop_na() %>% 
+  cor() %>% 
+  corrplot()
+
+# Positive correlations between accommodates, bathrooms, bedrooms, beds, price
+# -> might want to remove either accommodates or beds from my recipe because they 
+# are highly correlated, same with beds and bedrooms
+
+# Drop beds and accommodates, keep bedrooms
+
+# Also drop availability_X
+```
+
+```{r}
+#drop variables 
+airbnb <- airbnb %>% select(-c(amenities, '...1', id, host_id, review_scores_rating, availability_30,
+                               availability_60, availability_90, beds, number_of_reviews_ltm))
+airbnb %>% 
+  select(where(is.numeric)) %>% 
+    drop_na() %>% 
+  cor() %>% 
+  corrplot(type='lower')
+```
+
+Scatter plots
+```{r}
+#ggplot(airbnb, aes(x=number_of_reviews_ltm, y = price)) + geom_point()
+ggplot(airbnb, aes(x=minimum_nights, y = price)) + geom_point()
+ggplot(airbnb, aes(x=number_of_reviews, y = price)) + geom_point()
+ggplot(airbnb, aes(x=availability_365, y = price)) + geom_point()
+
+```
+Distribution of neighborhoods
+```{r}
+ggplot(airbnb, aes(x= neighbourhood)) + geom_bar() +theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+table(airbnb$neighbourhood)
+
+neighborhood_filtered <- airbnb %>% 
+  group_by(neighbourhood) %>% 
+  summarise(frequency = n()) %>% 
+  filter(frequency > 40) %>% 
+  arrange(desc(frequency))
+
+# Neighborhood_filtered is a subset of the data with the top occuring neighborhoods
+neighborhood_filtered <- airbnb %>% filter(neighbourhood %in% neighborhood_filtered$neighbourhood)
+neighborhood_filtered
+  
+ggplot(neighborhood_filtered, aes(x= neighbourhood)) + geom_bar() + 
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+Boxplot Interactions
+```{r}
+ggplot(airbnb, aes(x = room_type, y = price, fill = property_type)) + geom_boxplot() + theme_minimal()
+```
+
+
+```{r}
+ggplot(airbnb, aes(x = property_type, y = price)) + geom_boxplot() +theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+
+ggplot(airbnb, aes(x = property_type)) + geom_bar() +theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+
+ggplot(airbnb, aes(x = number_of_reviews_ltm, y = price)) + geom_point() +theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+
+airbnb %>% filter(property_type == 'Apartment') %>% 
+  ggplot(aes(x= accommodates, y = price)) + geom_point()
+
+```
+```{r}
+ggplot(airbnb, aes(y = number_of_reviews, x = price, fill = host_is_superhost)) + geom_point()
+```
+
+```{r}
+airbnb %>% 
+  group_by(neighbourhood) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+
+
+airbnb2 <- airbnb %>% 
+  mutate(neighbourhood = fct_lump(neighbourhood, n = 20, other_level = 'Other'))
+
+
+airbnb2 %>% 
+  group_by(neighbourhood) %>% 
+  count() %>% 
+  arrange(desc(n))
+ggplot(airbnb2, aes(x = neighbourhood)) + geom_bar() +theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+ggplot(airbnb, aes(x = property_type)) + geom_bar(fill = 'mediumorchid') +   theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+```
+
+```{r}
+airbnb %>% group_by(property_type) %>% count() %>% arrange(n)
+
+# Lump levels of property_type with less than 100 observations into 'Other'
+airbnb2 <- airbnb %>% 
+  mutate(property_type = fct_lump(property_type, n = 9, other_level = 'Other'))
+
+airbnb2 %>% group_by(property_type) %>% count() %>% arrange(n)
+ggplot(airbnb2, aes(x = property_type)) + geom_bar(fill = 'mediumorchid') + theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+```
+```{r}
+airbnb %>% group_by(room_type) %>% count() %>% arrange(n)
+
+```
+
+
