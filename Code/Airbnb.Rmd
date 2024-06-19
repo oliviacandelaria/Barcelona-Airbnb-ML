@@ -7,6 +7,7 @@ output:
     toc: true
     toc_depth: 3
     toc_float: TRUE
+    code_folding: show
 editor_options: 
   markdown: 
     wrap: sentence
@@ -49,7 +50,7 @@ tidymodels_prefer()
 ```
 
 ```{r, message=F, warning=FALSE}
-airbnb_raw <- read_csv('DATA/Airbnb Data/barcelona_listings.csv')
+airbnb_raw <- read_csv('Data/barcelona_listings.csv')
 ```
 
 # Exploratory Data Analysis
@@ -88,7 +89,7 @@ Now let's check out the data we'll be using for the rest of the project!
 head(airbnb)
 ```
 
-#### Transform Price and Cleaning Fee
+### Transform Price and Cleaning Fee
 
 `Price` and `cleaning_fee` are dollar amounts but they are stored as string values with the '\$' included.
 Let's clean them up and convert them to numeric variables.
@@ -98,14 +99,14 @@ airbnb$price <- as.numeric(gsub("[\\$,]", "", airbnb$price))
 airbnb$cleaning_fee <- as.numeric(gsub("[\\$,]", "", airbnb$cleaning_fee))
 ```
 
-#### Change neighborhood name
+### Change neighborhood name
 
 ```{r}
 airbnb$neighborhood <- airbnb$neighbourhood_group_cleansed
 airbnb <- airbnb %>% select(-neighbourhood_group_cleansed)
 ```
 
-#### Summary of Variables
+### Summary of Variables
 
 `host_is_superhost`:Indicates whether the host has superhost status.
 
@@ -123,7 +124,7 @@ airbnb <- airbnb %>% select(-neighbourhood_group_cleansed)
 
 `room_type`:The type of room (e.g., entire home, private room, shared room).
 
-`accommodates`: The maximum number of guests the listing can accommodate.
+`accommodates`:The maximum number of guests the listing can accommodate.
 
 `bathrooms`, `bedrooms`, and `beds`:The number of bathrooms, bedrooms, and beds in the listing.
 
@@ -133,7 +134,7 @@ airbnb <- airbnb %>% select(-neighbourhood_group_cleansed)
 
 `cleaning_fee`:Any additional cleaning fee charged by the host.
 
-`minimum_nights` and `maximum_nights`: The minimum and maximum number of nights guests can book.
+`minimum_nights` and `maximum_nights`:The minimum and maximum number of nights guests can book.
 
 `has_availability`:Indicates whether the listing is available for booking.
 
@@ -240,7 +241,7 @@ ggplot(airbnb, aes(y = price, x = accommodates)) + geom_jitter(width = 0.5) +
   theme_minimal()
 ```
 
-As expected, as the number of the people the Airbnb accommodates increases, the also increases.
+As expected, as the number of the people the Airbnb accommodates increases, the price also increases.
 
 ### Distribution of Neighborhoods
 
@@ -439,14 +440,16 @@ boosted_grid <- grid_regular(mtry(range = c(1, 20)),
 
 # Fit Folds
 
-Next, we fit the models to the folds we set up earlier \#### Fit Linear Model
+Next, we fit the models to the folds we set up earlier 
+
+### Fit Linear Model
 
 ```{r}
 lm_fit <- lm_wf %>% 
   fit_resamples(resamples = airbnb_folds)
 ```
 
-#### Tune grids
+### Tune grids
 
 Tune the grids on the folds, using the workflows and grid parameters previously set up.
 I also saved the tuned models to my device to save time in the future and avoid rerunning the models each time.
@@ -598,7 +601,7 @@ final_fit %>% extract_fit_parsnip() %>%
   geom_bar(stat = "identity", fill = "mediumorchid") + labs(title = 'Variable Importance Plot')
 ```
 
-According to the variable importance plot, accommodates, host_listings_count, and bedrooms were the top three most important predictors in the model.
+According to the variable importance plot, `accommodates`, `host_listings_count`, and `bedrooms` were the top three most important predictors in the model.
 Unsurprisingly, we noted earlier in the correlation plot that the number of people the Airbnb accommodates and the price are positively correlated.
 I was more surprised that the number of listings the host has on Airbnb had such predicting power.
 Perhaps Airbnb superhosts rent properties at higher prices since it is their profession rather than a source of passive income.
@@ -613,9 +616,11 @@ final_fit_test <- augment(final_fit, new_data = test)
 rsq(final_fit_test, truth = price, estimate = .pred)
 rmse(final_fit_test, truth = price, estimate = .pred)
 ```
+Our model has an R squared of 0.6375, meaning that 63.75% of the variation in price can be explained by variation in the predictors. The RMSE of the testing set turned out to be 59.6437, which is slightly higher than the Boosted Trees RMSE metric from the training set. It still outperformed the other models we trained on.
 
 ### Plot Residuals
 
+Let's see how our predictions did against the actual values of price. The x-axis represents `price`, the actual values from the testing set. The y-axis is our model's predictions. The blue line is the ideal path that the points should be on if the model fit perfectly. If the predictions were all equivalent to the actual price, we would have a slope of 1 for our best fit line. The actual best fit line is in red. We can see that our model under-predicted most of the points since the red line has a lower slope than the blue and many of our points fall below the blue line.
 ```{r}
 final_fit_test %>% 
   ggplot(aes(x = price, y = .pred)) + geom_point(alpha = 0.5) +
@@ -623,3 +628,22 @@ final_fit_test %>%
   geom_abline(color = 'blue', linetype = 'dashed') + 
   labs(title = 'Predicted vs. Actual Price')
 ```
+
+# Conclusion
+
+Finally all of the models are fit and we can conclude that the Boosted Trees model worked the best at predicting the price of Airbnb's. While the model did not do a perfect job, almost 64% of the variation was able to be explained by the predictors. If the model was perfect, the $R^2$ value would be 100%, indicating that all of the variation in the outcome was predicted by variation in the predictors. The RMSE of the final tested model was 59.65 euros, not much higher than the training RMSE.
+
+The worst model that we fit was the linear regression model which was only able to account for 38.3% of the variation. This is most likely because our data is non-linear. As we saw earlier in the correlation plot, most of the predictors did not have high linear correlations with the response variable, price. This just means that the data does not fit a perfectly linear model and other models worked better to predict the outcome. 
+
+If I were to continue this project to improve the machine learning model, I would be interested in testing different predictors along with the ones I chose. I am interested in predicting trends in Airbnb prices as well. As I was working on this project, I began to wonder if there is a way to predict changes in Airbnb prices for a given area, say Barcelona. Perhaps with more data on the housing market and economy of Barcelona I could potentially predict changes and trends in pricing data. 
+
+Overall, in this project I was successful in creating a model that predicts the price of an Airbnb based on given factors to some accuracy. I enjoyed this process and would like to continue developing my machine learning skills to be able to create more accurate models in the future.
+
+# Sources
+The data used for this project was downloaded from Kaggle: ‘[Barcelona Airbnb listings - Inside Airbnb](https://www.kaggle.com/datasets/zakariaeyoussefi/barcelona-airbnb-listings-inside-airbnb?select=barcelona_listings.csv)’. It was originally extracted from the Airbnb website by ‘[Inside Airbnb](https://insideairbnb.com/)’.
+
+
+
+
+
+
